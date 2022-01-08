@@ -24,6 +24,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.pipeline import Pipeline, make_pipeline
 
+import sklearn
+
 
 def delta_date_feature(dates):
     """
@@ -37,6 +39,8 @@ def delta_date_feature(dates):
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logger = logging.getLogger()
 
+logger.info("sklearn version")
+logger.info(sklearn.__version__)
 
 def go(args):
 
@@ -78,7 +82,7 @@ def go(args):
     # YOUR CODE HERE
     ######################################
 
-    model=sk_pipe.fit(X_train, y_train)
+    sk_pipe.fit(X_train, y_train)
     # Compute r2 and MAE
     logger.info("Scoring")
     r_squared = sk_pipe.score(X_val, y_val)
@@ -100,7 +104,7 @@ def go(args):
     # HINT: use mlflow.sklearn.save_model
     # YOUR CODE HERE
     ######################################
-    mlflow.sklearn.save_model(model, "random_forest_dir")
+    mlflow.sklearn.save_model(sk_pipe, "random_forest_dir")
 
     ######################################
     # Upload the model we just exported to W&B
@@ -111,7 +115,15 @@ def go(args):
     # YOUR CODE HERE
     ######################################
 
-    wandb.Artifact
+    artifact = wandb.Artifact(
+        args.output_artifact,
+        type="model_export",
+        description="exported random forest artifact",
+        metadata=rf_config
+    )
+    artifact.add_dir("random_forest_dir")
+
+    run.log_artifact(artifact)
 
     # Plot feature importance
     fig_feat_imp = plot_feature_importance(sk_pipe, processed_features)
@@ -123,20 +135,25 @@ def go(args):
     # YOUR CODE HERE
     ######################################
 
-    # Upload to W&B the feture importance visualization
+    # Upload to W&B the feature importance visualization
     run.log(
         {
           "feature_importance": wandb.Image(fig_feat_imp),
+          "mae": mae
         }
     )
 
 
 def plot_feature_importance(pipe, feat_names):
     # We collect the feature importance for all non-nlp features first
+    logger.info("pipe feature importance values matrix\n {}".format(pipe["random_forest"].feature_importances_))
     feat_imp = pipe["random_forest"].feature_importances_[: len(feat_names)-1]
     # For the NLP feature we sum across all the TF-IDF dimensions into a global
     # NLP importance
     nlp_importance = sum(pipe["random_forest"].feature_importances_[len(feat_names) - 1:])
+    logger.info("non nlp importance \n {}".format(feat_imp))
+    logger.info("nlp importance \n {}".format(nlp_importance))
+
     feat_imp = np.append(feat_imp, nlp_importance)
     fig_feat_imp, sub_feat_imp = plt.subplots(figsize=(10, 10))
     # idx = np.argsort(feat_imp)[::-1]
@@ -162,7 +179,7 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     # Build a pipeline with two steps:
     # 1 - A SimpleImputer(strategy="most_frequent") to impute missing values
     # 2 - A OneHotEncoder() step to encode the variable
-    non_ordinal_categorical_preproc = make_pipeline([SimpleImputer(),OneHotEncoder()])# YOUR CODE HERE
+    non_ordinal_categorical_preproc = make_pipeline(SimpleImputer(strategy="most_frequent"), OneHotEncoder())
     ######################################
 
     # Let's impute the numerical columns to make sure we can handle missing values
